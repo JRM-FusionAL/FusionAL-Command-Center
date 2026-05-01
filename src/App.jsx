@@ -17,6 +17,8 @@ const SERVICES = [
 
 // Christopher-AI llama.cpp runs on T3610 — configurable endpoint
 const DEFAULT_CHRISTOPHER_ENDPOINT = "http://100.65.9.40:8080";
+// Management API runs on T3610 — handles start/stop of all services
+const DEFAULT_MGMT_API = "http://100.65.9.40:8099";
 
 // ─── STYLES ────────────────────────────────────────────────────────────────
 const COLORS = {
@@ -197,6 +199,61 @@ const css = `
 
   .bar-bg { height: 3px; background: ${COLORS.border}; border-radius: 2px; margin-top: 4px; }
   .bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+
+  .srv-ctrl { margin-top: 12px; display: flex; gap: 6px; }
+
+  .srv-ctrl-btn {
+    flex: 1;
+    padding: 5px 0;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+  .srv-ctrl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .srv-ctrl-btn.start {
+    background: rgba(34,197,94,0.08);
+    border-color: rgba(34,197,94,0.35);
+    color: ${COLORS.green};
+  }
+  .srv-ctrl-btn.start:hover:not(:disabled) {
+    background: rgba(34,197,94,0.18);
+    border-color: rgba(34,197,94,0.65);
+  }
+  .srv-ctrl-btn.stop {
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.35);
+    color: ${COLORS.red};
+  }
+  .srv-ctrl-btn.stop:hover:not(:disabled) {
+    background: rgba(239,68,68,0.18);
+    border-color: rgba(239,68,68,0.65);
+  }
+
+  .mgmt-api-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: ${COLORS.surface};
+    border: 1px solid ${COLORS.border};
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: ${COLORS.muted};
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .mgmt-api-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: ${COLORS.subtext};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    width: 190px;
+  }
 
   /* Alerts */
   .alert-list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
@@ -437,7 +494,7 @@ function SystemOverview({ servers }) {
 }
 
 // ─── SERVER CARD ──────────────────────────────────────────────────────────
-function ServerCard({ name, subdomain, port, status, latency, code }) {
+function ServerCard({ name, subdomain, port, status, latency, code, onStart, onStop, actionInFlight }) {
   const statusClass = {
     online: "status-online", offline: "status-offline",
     warning: "status-warning", checking: "status-checking",
@@ -447,6 +504,8 @@ function ServerCard({ name, subdomain, port, status, latency, code }) {
     : latency < 100 ? COLORS.green
     : latency < 300 ? COLORS.yellow
     : COLORS.red;
+
+  const busy = !!actionInFlight;
 
   return (
     <div className="srv-card">
@@ -481,6 +540,20 @@ function ServerCard({ name, subdomain, port, status, latency, code }) {
           </div>
         </div>
       </div>
+      {(status === "offline" || status === "online" || busy) && (
+        <div className="srv-ctrl">
+          {(status === "offline" || (busy && actionInFlight === "starting")) && (
+            <button className="srv-ctrl-btn start" onClick={onStart} disabled={busy}>
+              {actionInFlight === "starting" ? "Starting…" : "▶ Start"}
+            </button>
+          )}
+          {(status === "online" || (busy && actionInFlight === "stopping")) && (
+            <button className="srv-ctrl-btn stop" onClick={onStop} disabled={busy}>
+              {actionInFlight === "stopping" ? "Stopping…" : "■ Stop"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -739,6 +812,8 @@ export default function App() {
     { id: "boot-1", type: "info", message: "Command Center initializing health checks…", timestamp: "just now" }
   ]);
   const [metricsHistory, setMetricsHistory] = useState([]);
+  const [mgmtApi, setMgmtApi] = useState(DEFAULT_MGMT_API);
+  const [actionInFlight, setActionInFlight] = useState({});
   const pollRef = useRef(null);
   const prevStatesRef = useRef(null);
 
@@ -796,6 +871,18 @@ export default function App() {
     ]);
   }, [pushAlert]);
 
+  const controlService = useCallback(async (key, action) => {
+    setActionInFlight(p => ({ ...p, [key]: action === "start" ? "starting" : "stopping" }));
+    try {
+      await fetch(`${mgmtApi}/${action}/${key}`, { method: "POST", signal: AbortSignal.timeout(8000) });
+    } catch {
+      // re-poll will surface the real status
+    } finally {
+      setActionInFlight(p => ({ ...p, [key]: null }));
+      runHealthChecks();
+    }
+  }, [mgmtApi, runHealthChecks]);
+
   useEffect(() => {
     const timer = setTimeout(runHealthChecks, 0);
     pollRef.current = setInterval(runHealthChecks, 3000);
@@ -815,9 +902,20 @@ export default function App() {
               <div className="cc-subtitle">FusionAL Infrastructure · gateway.fusional.dev</div>
             </div>
           </div>
-          <div className="live-badge">
-            <div className="pulse-dot" />
-            <span>Live · 3s poll</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="mgmt-api-row">
+              <span>Mgmt API:</span>
+              <input
+                className="mgmt-api-input"
+                value={mgmtApi}
+                onChange={e => setMgmtApi(e.target.value)}
+                placeholder="http://100.65.9.40:8099"
+              />
+            </div>
+            <div className="live-badge">
+              <div className="pulse-dot" />
+              <span>Live · 3s poll</span>
+            </div>
           </div>
         </div>
 
@@ -833,7 +931,13 @@ export default function App() {
         {/* Service Cards */}
         <div className="servers-grid">
           {serviceStates.map(s => (
-            <ServerCard key={s.key} {...s} />
+            <ServerCard
+              key={s.key}
+              {...s}
+              onStart={() => controlService(s.key, "start")}
+              onStop={() => controlService(s.key, "stop")}
+              actionInFlight={actionInFlight[s.key]}
+            />
           ))}
         </div>
 
