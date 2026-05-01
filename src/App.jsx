@@ -418,7 +418,7 @@ function SystemOverview({ servers }) {
     { label: "Total Services",    value: total,                             sub: "registered",     accent: COLORS.accent,   color: COLORS.accent },
     { label: "Online",            value: checking > 0 ? "…" : online,       sub: `${offline} offline`, accent: COLORS.green,    color: COLORS.green },
     { label: "Avg Latency",       value: avgLat ? `${avgLat}ms` : "—",      sub: "response time",  accent: COLORS.yellow,   color: COLORS.yellow },
-    { label: "Health Checks",     value: checking > 0 ? "Polling…" : "Live", sub: "10s interval",  accent: COLORS.accent2,  color: COLORS.accent2 },
+    { label: "Health Checks",     value: checking > 0 ? "Polling…" : "Live", sub: "3s interval",   accent: COLORS.accent2,  color: COLORS.accent2 },
   ];
 
   return (
@@ -752,7 +752,7 @@ export default function App() {
         try {
           const res = await fetch(
             `https://${svc.subdomain}${svc.healthPath}`,
-            { signal: AbortSignal.timeout(5000) }
+            { signal: AbortSignal.timeout(2500) }
           );
           latency = Math.round(performance.now() - t0);
           code = res.status;
@@ -795,9 +795,9 @@ export default function App() {
   }, [pushAlert]);
 
   useEffect(() => {
-    runHealthChecks();
-    pollRef.current = setInterval(runHealthChecks, 10000);
-    return () => clearInterval(pollRef.current);
+    const timer = setTimeout(runHealthChecks, 0);
+    pollRef.current = setInterval(runHealthChecks, 3000);
+    return () => { clearTimeout(timer); clearInterval(pollRef.current); };
   }, [runHealthChecks]);
 
   return (
@@ -815,7 +815,7 @@ export default function App() {
           </div>
           <div className="live-badge">
             <div className="pulse-dot" />
-            <span>Live · 10s poll</span>
+            <span>Live · 3s poll</span>
           </div>
         </div>
 
