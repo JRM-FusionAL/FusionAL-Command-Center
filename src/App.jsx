@@ -6,11 +6,13 @@ import {
 
 // ─── REAL SERVICE ENDPOINTS ────────────────────────────────────────────────
 const SERVICES = [
-  { name: "FusionAL Gateway",          subdomain: "gateway.fusional.dev", port: 8089, healthPath: "/health" },
-  { name: "Business Intelligence MCP",  subdomain: "bi.fusional.dev",      port: 8101, healthPath: "/health" },
-  { name: "API Integration Hub",        subdomain: "api.fusional.dev",      port: 8102, healthPath: "/health" },
-  { name: "Content Automation MCP",     subdomain: "content.fusional.dev",  port: 8103, healthPath: "/health" },
-  { name: "Intelligence MCP",           subdomain: "intel.fusional.dev",    port: 8104, healthPath: "/health" },
+  { key: "gateway",       name: "FusionAL Gateway",          subdomain: "gateway.fusional.dev", port: 8089, healthPath: "/health" },
+  { key: "bi-mcp",        name: "Business Intelligence MCP",  subdomain: "bi.fusional.dev",      port: 8101, healthPath: "/health" },
+  { key: "api-hub",       name: "API Integration Hub",        subdomain: "api.fusional.dev",      port: 8102, healthPath: "/health" },
+  { key: "content-mcp",   name: "Content Automation MCP",     subdomain: "content.fusional.dev",  port: 8103, healthPath: "/health" },
+  { key: "intel-mcp",     name: "Intelligence MCP",           subdomain: "intel.fusional.dev",    port: 8104, healthPath: "/health" },
+  { key: "christopher-ai", name: "Christopher-AI (llama.cpp)", subdomain: "100.65.9.40:8080",     port: 8080, healthPath: "/health",
+    url: "http://100.65.9.40:8080/health" },
 ];
 
 // Christopher-AI llama.cpp runs on T3610 — configurable endpoint
@@ -751,7 +753,7 @@ export default function App() {
         let status = "offline", latency = null, code = null;
         try {
           const res = await fetch(
-            `https://${svc.subdomain}${svc.healthPath}`,
+            svc.url ?? `https://${svc.subdomain}${svc.healthPath}`,
             { signal: AbortSignal.timeout(2500) }
           );
           latency = Math.round(performance.now() - t0);
@@ -831,7 +833,7 @@ export default function App() {
         {/* Service Cards */}
         <div className="servers-grid">
           {serviceStates.map(s => (
-            <ServerCard key={s.port} {...s} />
+            <ServerCard key={s.key} {...s} />
           ))}
         </div>
 
