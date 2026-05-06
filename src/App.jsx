@@ -3,6 +3,14 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
 } from "recharts";
+import { Langfuse } from "langfuse";
+
+const langfuse = new Langfuse({
+  publicKey: "pk-lf-243faa21-b04c-4eef-91a6-b446676e08d2",
+  secretKey: "sk-lf-41673d4a-4fa4-4348-8bc4-bfb167e76dda",
+  baseUrl: "http://100.65.9.40:3000",
+  flushAt: 1,
+});
 
 // ─── REAL SERVICE ENDPOINTS ────────────────────────────────────────────────
 const SERVICES = [
@@ -658,12 +666,21 @@ function ChristopherAI() {
     setInput("");
     setLoading(true);
 
+    const prompt = buildPrompt(newMsgs, sysPrompt);
+    const trace = langfuse.trace({ name: "christopher-chat", userId: "dashboard" });
+    const generation = trace.generation({
+      name: "completion",
+      model: "Llama-3.2-3B-Instruct-Q4_K_M",
+      input: prompt,
+      modelParameters: { temperature: 0.7, maxTokens: 512 },
+    });
+
     try {
       const res = await fetch(`${endpoint}/completion`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: buildPrompt(newMsgs, sysPrompt),
+          prompt,
           n_predict: 512,
           temperature: 0.7,
           stop: ["### User", "### System", "</s>"],
@@ -675,9 +692,11 @@ function ChristopherAI() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const reply = data.content?.trim() || "[empty response]";
+      generation.end({ output: reply, usage: { totalTokens: data.tokens_evaluated + (data.tokens_predicted ?? 0) } });
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
       setConnStatus("online");
     } catch (e) {
+      generation.end({ output: e.message, level: "ERROR" });
       setMessages(prev => [...prev, {
         role: "assistant",
         content: `[Connection error: ${e.message}]\n\nCheck that llama.cpp server is running at ${endpoint}\n\nStart it with:\n./server -m /path/to/model.gguf --host 0.0.0.0 --port 8080`
