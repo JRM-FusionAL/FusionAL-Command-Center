@@ -31,7 +31,7 @@ A 30-point rolling history of average latency and online service count feeds a R
 
 ### Christopher-AI chat
 
-The embedded chat panel talks to a local llama.cpp instance at `100.65.9.40:8080` (Tailscale IP of the T3610 host) via POST `/completion`. Timeout is 60 seconds. The endpoint and system prompt are configurable via UI controls rendered inline in the panel.
+The embedded chat panel talks to a local llama.cpp instance at `https://christopher.fusional.dev` (proxied via Cloudflare to T3610) via POST `/completion`. Timeout is 60 seconds. The endpoint and system prompt are configurable via UI controls rendered inline in the panel.
 
 ### Styling
 

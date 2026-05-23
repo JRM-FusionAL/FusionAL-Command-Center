@@ -19,12 +19,12 @@ const SERVICES = [
   { key: "api-hub",       name: "API Integration Hub",        subdomain: "api.fusional.dev",      port: 8102, healthPath: "/health" },
   { key: "content-mcp",   name: "Content Automation MCP",     subdomain: "content.fusional.dev",  port: 8103, healthPath: "/health" },
   { key: "intel-mcp",     name: "Intelligence MCP",           subdomain: "intel.fusional.dev",    port: 8104, healthPath: "/health" },
-  { key: "christopher-ai", name: "Christopher-AI (llama.cpp)", subdomain: "100.65.9.40:8080",     port: 8080, healthPath: "/health",
-    url: "http://100.65.9.40:8080/health" },
+  { key: "christopher-ai", name: "Christopher-AI (llama.cpp)", subdomain: "christopher.fusional.dev", port: 8080, healthPath: "/health",
+    url: "https://christopher.fusional.dev/health" },
 ];
 
 // Christopher-AI llama.cpp runs on T3610 — configurable endpoint
-const DEFAULT_CHRISTOPHER_ENDPOINT = "http://100.65.9.40:8080";
+const DEFAULT_CHRISTOPHER_ENDPOINT = "https://christopher.fusional.dev";
 // Management API runs on T3610 — handles start/stop of all services
 const DEFAULT_MGMT_API = "http://100.65.9.40:8099";
 
@@ -774,7 +774,7 @@ function ChristopherAI() {
               className="config-input"
               value={endpoint}
               onChange={e => setEndpoint(e.target.value)}
-              placeholder="http://100.65.9.40:8080"
+              placeholder="https://christopher.fusional.dev"
             />
           </div>
 
