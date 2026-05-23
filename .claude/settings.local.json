@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(ssh *)",
+      "Read(//c/Users/puddi/.claude/plugins/data/pdf-viewer-inline//**)",
+      "Read(//c/Users/puddi/.claude/plugins/data//**)",
+      "Bash(xargs cat *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(gh pr *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(C:\\\\Python314\\\\python.exe *)",
+      "PowerShell(Test-Path *son)",
+      "Bash(git *)"
+    ]
+  }
+}
