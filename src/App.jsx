@@ -648,13 +648,15 @@ function ChristopherAI() {
   useEffect(() => { checkConnection(); }, [checkConnection]);
 
   const buildPrompt = (msgs, sys) => {
-    let prompt = sys ? `### System\n${sys}\n\n` : "";
+    let prompt = "<|begin_of_text|>";
+    if (sys) {
+      prompt += `<|start_header_id|>system<|end_header_id|>\n\n${sys}<|eot_id|>`;
+    }
     msgs.forEach(m => {
-      prompt += m.role === "user"
-        ? `### User\n${m.content}\n\n`
-        : `### Assistant\n${m.content}\n\n`;
+      const role = m.role === "user" ? "user" : "assistant";
+      prompt += `<|start_header_id|>${role}<|end_header_id|>\n\n${m.content}<|eot_id|>`;
     });
-    prompt += "### Assistant\n";
+    prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";
     return prompt;
   };
 
@@ -682,8 +684,8 @@ function ChristopherAI() {
         body: JSON.stringify({
           prompt,
           n_predict: 512,
-          temperature: 0.7,
-          stop: ["### User", "### System", "</s>"],
+          temperature: 0.4,
+          stop: ["<|eot_id|>", "<|start_header_id|>"],
           stream: false,
         }),
         signal: AbortSignal.timeout(60000),
@@ -848,13 +850,18 @@ export default function App() {
         try {
           const res = await fetch(
             svc.url ?? `https://${svc.subdomain}${svc.healthPath}`,
-            { signal: AbortSignal.timeout(2500) }
+            { mode: "no-cors", signal: AbortSignal.timeout(4000) }
           );
           latency = Math.round(performance.now() - t0);
-          code = res.status;
-          status = res.ok ? "online" : "warning";
+          if (res.type === "opaque") {
+            status = "online";
+            code = null;
+          } else {
+            code = res.status;
+            status = res.ok ? "online" : "warning";
+          }
         } catch {
-          // latency stays null
+          // network error or timeout — stays offline
         }
         return { ...svc, status, latency, code };
       })
