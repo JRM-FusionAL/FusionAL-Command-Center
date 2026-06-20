@@ -3,18 +3,30 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
 } from "recharts";
+import { Langfuse } from "langfuse";
+
+const langfuse = new Langfuse({
+  publicKey: "pk-lf-243faa21-b04c-4eef-91a6-b446676e08d2",
+  secretKey: "sk-lf-41673d4a-4fa4-4348-8bc4-bfb167e76dda",
+  baseUrl: "http://100.65.9.40:3000",
+  flushAt: 1,
+});
 
 // ─── REAL SERVICE ENDPOINTS ────────────────────────────────────────────────
 const SERVICES = [
-  { name: "FusionAL Gateway",          subdomain: "gateway.fusional.dev", port: 8089, healthPath: "/health" },
-  { name: "Business Intelligence MCP",  subdomain: "bi.fusional.dev",      port: 8101, healthPath: "/health" },
-  { name: "API Integration Hub",        subdomain: "api.fusional.dev",      port: 8102, healthPath: "/health" },
-  { name: "Content Automation MCP",     subdomain: "content.fusional.dev",  port: 8103, healthPath: "/health" },
-  { name: "Intelligence MCP",           subdomain: "intel.fusional.dev",    port: 8104, healthPath: "/health" },
+  { key: "gateway",       name: "FusionAL Gateway",          subdomain: "gateway.fusional.dev", port: 8089, healthPath: "/health" },
+  { key: "bi-mcp",        name: "Business Intelligence MCP",  subdomain: "bi.fusional.dev",      port: 8101, healthPath: "/health" },
+  { key: "api-hub",       name: "API Integration Hub",        subdomain: "api.fusional.dev",      port: 8102, healthPath: "/health" },
+  { key: "content-mcp",   name: "Content Automation MCP",     subdomain: "content.fusional.dev",  port: 8103, healthPath: "/health" },
+  { key: "intel-mcp",     name: "Intelligence MCP",           subdomain: "intel.fusional.dev",    port: 8104, healthPath: "/health" },
+  { key: "christopher-ai", name: "Christopher-AI (llama.cpp)", subdomain: "christopher.fusional.dev", port: 8080, healthPath: "/health",
+    url: "https://christopher.fusional.dev/health" },
 ];
 
 // Christopher-AI llama.cpp runs on T3610 — configurable endpoint
-const DEFAULT_CHRISTOPHER_ENDPOINT = "http://100.65.9.40:8080";
+const DEFAULT_CHRISTOPHER_ENDPOINT = "https://christopher.fusional.dev";
+// Management API runs on T3610 — handles start/stop of all services
+const DEFAULT_MGMT_API = "http://100.65.9.40:8099";
 
 // ─── STYLES ────────────────────────────────────────────────────────────────
 const COLORS = {
@@ -195,6 +207,61 @@ const css = `
 
   .bar-bg { height: 3px; background: ${COLORS.border}; border-radius: 2px; margin-top: 4px; }
   .bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+
+  .srv-ctrl { margin-top: 12px; display: flex; gap: 6px; }
+
+  .srv-ctrl-btn {
+    flex: 1;
+    padding: 5px 0;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+  .srv-ctrl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .srv-ctrl-btn.start {
+    background: rgba(34,197,94,0.08);
+    border-color: rgba(34,197,94,0.35);
+    color: ${COLORS.green};
+  }
+  .srv-ctrl-btn.start:hover:not(:disabled) {
+    background: rgba(34,197,94,0.18);
+    border-color: rgba(34,197,94,0.65);
+  }
+  .srv-ctrl-btn.stop {
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.35);
+    color: ${COLORS.red};
+  }
+  .srv-ctrl-btn.stop:hover:not(:disabled) {
+    background: rgba(239,68,68,0.18);
+    border-color: rgba(239,68,68,0.65);
+  }
+
+  .mgmt-api-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: ${COLORS.surface};
+    border: 1px solid ${COLORS.border};
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: ${COLORS.muted};
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .mgmt-api-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: ${COLORS.subtext};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    width: 190px;
+  }
 
   /* Alerts */
   .alert-list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
@@ -435,7 +502,7 @@ function SystemOverview({ servers }) {
 }
 
 // ─── SERVER CARD ──────────────────────────────────────────────────────────
-function ServerCard({ name, subdomain, port, status, latency, code }) {
+function ServerCard({ name, subdomain, port, status, latency, code, onStart, onStop, actionInFlight }) {
   const statusClass = {
     online: "status-online", offline: "status-offline",
     warning: "status-warning", checking: "status-checking",
@@ -445,6 +512,8 @@ function ServerCard({ name, subdomain, port, status, latency, code }) {
     : latency < 100 ? COLORS.green
     : latency < 300 ? COLORS.yellow
     : COLORS.red;
+
+  const busy = !!actionInFlight;
 
   return (
     <div className="srv-card">
@@ -479,6 +548,20 @@ function ServerCard({ name, subdomain, port, status, latency, code }) {
           </div>
         </div>
       </div>
+      {(status === "offline" || status === "online" || busy) && (
+        <div className="srv-ctrl">
+          {(status === "offline" || (busy && actionInFlight === "starting")) && (
+            <button className="srv-ctrl-btn start" onClick={onStart} disabled={busy}>
+              {actionInFlight === "starting" ? "Starting…" : "▶ Start"}
+            </button>
+          )}
+          {(status === "online" || (busy && actionInFlight === "stopping")) && (
+            <button className="srv-ctrl-btn stop" onClick={onStop} disabled={busy}>
+              {actionInFlight === "stopping" ? "Stopping…" : "■ Stop"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -565,13 +648,15 @@ function ChristopherAI() {
   useEffect(() => { checkConnection(); }, [checkConnection]);
 
   const buildPrompt = (msgs, sys) => {
-    let prompt = sys ? `### System\n${sys}\n\n` : "";
+    let prompt = "<|begin_of_text|>";
+    if (sys) {
+      prompt += `<|start_header_id|>system<|end_header_id|>\n\n${sys}<|eot_id|>`;
+    }
     msgs.forEach(m => {
-      prompt += m.role === "user"
-        ? `### User\n${m.content}\n\n`
-        : `### Assistant\n${m.content}\n\n`;
+      const role = m.role === "user" ? "user" : "assistant";
+      prompt += `<|start_header_id|>${role}<|end_header_id|>\n\n${m.content}<|eot_id|>`;
     });
-    prompt += "### Assistant\n";
+    prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";
     return prompt;
   };
 
@@ -583,15 +668,24 @@ function ChristopherAI() {
     setInput("");
     setLoading(true);
 
+    const prompt = buildPrompt(newMsgs, sysPrompt);
+    const trace = langfuse.trace({ name: "christopher-chat", userId: "dashboard" });
+    const generation = trace.generation({
+      name: "completion",
+      model: "Llama-3.2-3B-Instruct-Q4_K_M",
+      input: prompt,
+      modelParameters: { temperature: 0.7, maxTokens: 512 },
+    });
+
     try {
       const res = await fetch(`${endpoint}/completion`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: buildPrompt(newMsgs, sysPrompt),
+          prompt,
           n_predict: 512,
-          temperature: 0.7,
-          stop: ["### User", "### System", "</s>"],
+          temperature: 0.4,
+          stop: ["<|eot_id|>", "<|start_header_id|>"],
           stream: false,
         }),
         signal: AbortSignal.timeout(60000),
@@ -600,9 +694,11 @@ function ChristopherAI() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const reply = data.content?.trim() || "[empty response]";
+      generation.end({ output: reply, usage: { totalTokens: data.tokens_evaluated + (data.tokens_predicted ?? 0) } });
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
       setConnStatus("online");
     } catch (e) {
+      generation.end({ output: e.message, level: "ERROR" });
       setMessages(prev => [...prev, {
         role: "assistant",
         content: `[Connection error: ${e.message}]\n\nCheck that llama.cpp server is running at ${endpoint}\n\nStart it with:\n./server -m /path/to/model.gguf --host 0.0.0.0 --port 8080`
@@ -680,7 +776,7 @@ function ChristopherAI() {
               className="config-input"
               value={endpoint}
               onChange={e => setEndpoint(e.target.value)}
-              placeholder="http://100.65.9.40:8080"
+              placeholder="https://christopher.fusional.dev"
             />
           </div>
 
@@ -737,6 +833,8 @@ export default function App() {
     { id: "boot-1", type: "info", message: "Command Center initializing health checks…", timestamp: "just now" }
   ]);
   const [metricsHistory, setMetricsHistory] = useState([]);
+  const [mgmtApi, setMgmtApi] = useState(DEFAULT_MGMT_API);
+  const [actionInFlight, setActionInFlight] = useState({});
   const pollRef = useRef(null);
   const prevStatesRef = useRef(null);
 
@@ -751,14 +849,19 @@ export default function App() {
         let status = "offline", latency = null, code = null;
         try {
           const res = await fetch(
-            `https://${svc.subdomain}${svc.healthPath}`,
-            { signal: AbortSignal.timeout(2500) }
+            svc.url ?? `https://${svc.subdomain}${svc.healthPath}`,
+            { mode: "no-cors", signal: AbortSignal.timeout(4000) }
           );
           latency = Math.round(performance.now() - t0);
-          code = res.status;
-          status = res.ok ? "online" : "warning";
+          if (res.type === "opaque") {
+            status = "online";
+            code = null;
+          } else {
+            code = res.status;
+            status = res.ok ? "online" : "warning";
+          }
         } catch {
-          // latency stays null
+          // network error or timeout — stays offline
         }
         return { ...svc, status, latency, code };
       })
@@ -794,6 +897,18 @@ export default function App() {
     ]);
   }, [pushAlert]);
 
+  const controlService = useCallback(async (key, action) => {
+    setActionInFlight(p => ({ ...p, [key]: action === "start" ? "starting" : "stopping" }));
+    try {
+      await fetch(`${mgmtApi}/${action}/${key}`, { method: "POST", signal: AbortSignal.timeout(8000) });
+    } catch {
+      // re-poll will surface the real status
+    } finally {
+      setActionInFlight(p => ({ ...p, [key]: null }));
+      runHealthChecks();
+    }
+  }, [mgmtApi, runHealthChecks]);
+
   useEffect(() => {
     const timer = setTimeout(runHealthChecks, 0);
     pollRef.current = setInterval(runHealthChecks, 3000);
@@ -813,9 +928,20 @@ export default function App() {
               <div className="cc-subtitle">FusionAL Infrastructure · gateway.fusional.dev</div>
             </div>
           </div>
-          <div className="live-badge">
-            <div className="pulse-dot" />
-            <span>Live · 3s poll</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="mgmt-api-row">
+              <span>Mgmt API:</span>
+              <input
+                className="mgmt-api-input"
+                value={mgmtApi}
+                onChange={e => setMgmtApi(e.target.value)}
+                placeholder="http://100.65.9.40:8099"
+              />
+            </div>
+            <div className="live-badge">
+              <div className="pulse-dot" />
+              <span>Live · 3s poll</span>
+            </div>
           </div>
         </div>
 
@@ -831,7 +957,13 @@ export default function App() {
         {/* Service Cards */}
         <div className="servers-grid">
           {serviceStates.map(s => (
-            <ServerCard key={s.port} {...s} />
+            <ServerCard
+              key={s.key}
+              {...s}
+              onStart={() => controlService(s.key, "start")}
+              onStop={() => controlService(s.key, "stop")}
+              actionInFlight={actionInFlight[s.key]}
+            />
           ))}
         </div>
 
