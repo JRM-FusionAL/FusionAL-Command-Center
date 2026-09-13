@@ -18,9 +18,9 @@ const { exec, execSync } = require("child_process");
 
 const PORT = 8099;
 
-const LLAMA_BIN   = "/home/jrm_fusional/llama.cpp/build/bin/llama-server";
-const LLAMA_MODEL = "/home/jrm_fusional/llama.cpp/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf";
-const LLAMA_LOG   = "/home/jrm_fusional/christopher.log";
+const LLAMA_BIN   = "/home/jrm-fusional/llama.cpp/build/bin/llama-server";
+const LLAMA_MODEL = "/home/jrm-fusional/llama.cpp/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf";
+const LLAMA_LOG   = "/home/jrm-fusional/christopher.log";
 
 const SERVICE_COMMANDS = {
   "gateway": {
