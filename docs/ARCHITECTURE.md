@@ -1,5 +1,33 @@
 # FusionAL Command Center — Architecture
 
+## Current management security and verification boundary
+
+The optional Node management process is `server/manage.cjs`; the browser SPA is
+not itself a process-control server. Importing the module has no listener or
+process side effects. Startup requires a unique `FUSIONAL_MANAGE_TOKEN` of at
+least 32 characters. The default listener is `127.0.0.1:8099`; wider binding needs
+an explicit `FUSIONAL_MANAGE_HOST`. Set `FUSIONAL_MANAGE_ORIGINS` to a comma-separated
+list of exact dashboard HTTP(S) origins, never `*`. Only local Vite origins are
+allowed by default. Use TLS or a protected local tunnel for remote access.
+
+The dashboard accepts the token in a password field kept only in React memory;
+it sends `Authorization: Bearer ...` and reports rejected control requests.
+Status and all start/stop operations require authentication. Service keys are
+restricted to own entries of the configured command map. The legacy shell
+commands below must be reviewed for the actual host before running anything.
+
+Browser-side Langfuse telemetry has been removed because secret keys must not
+ship in browser source or bundles. Treat any formerly committed credential as
+exposed and rotate it separately. No credential revocation or Git history rewrite
+was performed. A secure server-side telemetry relay is not implemented here.
+
+`npm test` exercises real owned loopback HTTP listeners with injected fake
+commands, including the actual browser request helper; it never controls real
+services or invokes a model. Build/lint tests do not establish deployed fleet
+health. The descriptive topology and deployment examples below are historical,
+not verified current service state.
+
+
 ## Overview
 
 FusionAL Command Center is a **single-page application (SPA)** that serves as the operational dashboard for the FusionAL infrastructure. It provides real-time health monitoring, service management (start/stop), and an integrated chat interface to the local llama.cpp-powered AI assistant (Christopher-AI).
