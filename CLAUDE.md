@@ -9,13 +9,14 @@ npm run dev        # Start Vite dev server with HMR
 npm run build      # Production build → /dist
 npm run preview    # Preview production build locally
 npm run lint       # ESLint on all files
+npm test           # Owned loopback HTTP tests; never real service commands
 ```
 
 Deployment uses Wrangler (Cloudflare Pages/Workers) — `wrangler` is available as a dev dependency.
 
 ## Architecture
 
-This is a **single-page React 19 + Vite** monitoring dashboard for the FusionAL microservices platform. There is no backend, no TypeScript, and no test suite.
+This is a **single-page React 19 + Vite** monitoring dashboard with an optional authenticated Node management server (`server/manage.cjs`). There is no TypeScript. Tests use injected fake commands and ephemeral loopback listeners; never run real service controls or models to test the dashboard. See `docs/ARCHITECTURE.md` for token, origin and credential-rotation boundaries.
 
 All application logic lives in two files:
 - **`src/App.jsx`** — the entire application (~850+ lines): service health polling, metrics history, event log, chat interface, and all inline CSS-in-JS styles

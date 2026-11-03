@@ -3,14 +3,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
 } from "recharts";
-import { Langfuse } from "langfuse";
+import { sendManagementCommand } from "./management.mjs";
 
-const langfuse = new Langfuse({
-  publicKey: "pk-lf-243faa21-b04c-4eef-91a6-b446676e08d2",
-  secretKey: "sk-lf-41673d4a-4fa4-4348-8bc4-bfb167e76dda",
-  baseUrl: "http://100.65.9.40:3000",
-  flushAt: 1,
-});
+// Browser-side telemetry is disabled: secret keys belong on a trusted server.
 
 // ─── REAL SERVICE ENDPOINTS ────────────────────────────────────────────────
 const SERVICES = [
@@ -26,7 +21,7 @@ const SERVICES = [
 // Christopher-AI llama.cpp runs on T3610 — configurable endpoint
 const DEFAULT_CHRISTOPHER_ENDPOINT = "https://christopher.fusional.dev";
 // Management API runs on T3610 — handles start/stop of all services
-const DEFAULT_MGMT_API = "http://100.65.9.40:8099";
+const DEFAULT_MGMT_API = "http://127.0.0.1:8099";
 
 // ─── STYLES ────────────────────────────────────────────────────────────────
 const COLORS = {
@@ -669,13 +664,6 @@ function ChristopherAI() {
     setLoading(true);
 
     const prompt = buildPrompt(newMsgs, sysPrompt);
-    const trace = langfuse.trace({ name: "christopher-chat", userId: "dashboard" });
-    const generation = trace.generation({
-      name: "completion",
-      model: "Llama-3.2-3B-Instruct-Q4_K_M",
-      input: prompt,
-      modelParameters: { temperature: 0.7, maxTokens: 512 },
-    });
 
     try {
       const res = await fetch(`${endpoint}/completion`, {
@@ -694,11 +682,9 @@ function ChristopherAI() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const reply = data.content?.trim() || "[empty response]";
-      generation.end({ output: reply, usage: { totalTokens: data.tokens_evaluated + (data.tokens_predicted ?? 0) } });
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
       setConnStatus("online");
     } catch (e) {
-      generation.end({ output: e.message, level: "ERROR" });
       setMessages(prev => [...prev, {
         role: "assistant",
         content: `[Connection error: ${e.message}]\n\nCheck that llama.cpp server is running at ${endpoint}\n\nStart it with:\n./server -m /path/to/model.gguf --host 0.0.0.0 --port 8080`
@@ -834,6 +820,7 @@ export default function App() {
   ]);
   const [metricsHistory, setMetricsHistory] = useState([]);
   const [mgmtApi, setMgmtApi] = useState(DEFAULT_MGMT_API);
+  const [mgmtToken, setMgmtToken] = useState("");
   const [actionInFlight, setActionInFlight] = useState({});
   const pollRef = useRef(null);
   const prevStatesRef = useRef(null);
@@ -900,14 +887,14 @@ export default function App() {
   const controlService = useCallback(async (key, action) => {
     setActionInFlight(p => ({ ...p, [key]: action === "start" ? "starting" : "stopping" }));
     try {
-      await fetch(`${mgmtApi}/${action}/${key}`, { method: "POST", signal: AbortSignal.timeout(8000) });
-    } catch {
-      // re-poll will surface the real status
+      await sendManagementCommand(mgmtApi, mgmtToken, key, action);
+    } catch (error) {
+      pushAlert("error", `Service control failed: ${error.message}`);
     } finally {
       setActionInFlight(p => ({ ...p, [key]: null }));
       runHealthChecks();
     }
-  }, [mgmtApi, runHealthChecks]);
+  }, [mgmtApi, mgmtToken, runHealthChecks, pushAlert]);
 
   useEffect(() => {
     const timer = setTimeout(runHealthChecks, 0);
@@ -935,8 +922,11 @@ export default function App() {
                 className="mgmt-api-input"
                 value={mgmtApi}
                 onChange={e => setMgmtApi(e.target.value)}
-                placeholder="http://100.65.9.40:8099"
+                placeholder="http://127.0.0.1:8099"
               />
+              <input type="password" aria-label="Management token" autoComplete="off"
+                value={mgmtToken} onChange={e => setMgmtToken(e.target.value)}
+                placeholder="Management token (memory only)" />
             </div>
             <div className="live-badge">
               <div className="pulse-dot" />
