@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-/* eslint-disable */
 /**
  * FusionAL Management Server
- * Run this on your T3610 host: node server/manage.js
+ * Legacy command templates; configure for your host: node server/manage.cjs
  *
  * Exposes:
  *   POST /start/:key   — start a service
@@ -17,6 +16,8 @@ const http = require("http");
 const { exec, execSync } = require("child_process");
 
 const PORT = 8099;
+const DEFAULT_HOST = "127.0.0.1";
+const { createHash, timingSafeEqual } = require("node:crypto");
 
 const LLAMA_BIN   = "/home/jrm-fusional/llama.cpp/build/bin/llama-server";
 const LLAMA_MODEL = "/home/jrm-fusional/llama.cpp/models/Llama-3.2-3B-Instruct-Q4_K_M.gguf";
@@ -49,23 +50,11 @@ const SERVICE_COMMANDS = {
     check: "docker inspect -f '{{.State.Running}}' intelligence-mcp",
   },
   "christopher-ai": {
-    start: `bash -c 'nohup ${LLAMA_BIN} -m ${LLAMA_MODEL} -ngl 99 -t 4 -c 2048 --host 0.0.0.0 --port 8080 --log-disable &>> ${LLAMA_LOG} &'`,
+    start: `bash -c 'nohup ${LLAMA_BIN} -m ${LLAMA_MODEL} -ngl 99 -t 4 -c 2048 --host 127.0.0.1 --port 8080 --log-disable &>> ${LLAMA_LOG} &'`,
     stop:  "pkill -f llama-server; sleep 1; pkill -9 -f llama-server; true",
     check: "pgrep -x llama-server",
   },
 };
-
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
-function json(res, code, body) {
-  cors(res);
-  res.writeHead(code, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
 
 function run(cmd) {
   return new Promise((resolve, reject) => {
@@ -88,56 +77,68 @@ function checkRunning(key) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  if (req.method === "OPTIONS") {
-    cors(res);
-    res.writeHead(204);
-    res.end();
-    return;
+function createManagementServer({
+  token = process.env.FUSIONAL_MANAGE_TOKEN,
+  allowedOrigins = (process.env.FUSIONAL_MANAGE_ORIGINS || "http://localhost:5173,http://127.0.0.1:5173").split(",").filter(Boolean),
+  commands = SERVICE_COMMANDS,
+  execute = run,
+  check = checkRunning,
+} = {}) {
+  if (typeof token !== "string" || token.trim().length < 32 || token !== token.trim()) {
+    throw new Error("Set a unique FUSIONAL_MANAGE_TOKEN of at least 32 characters");
   }
-
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  const parts = url.pathname.split("/").filter(Boolean);
-
-  // GET /status
-  if (req.method === "GET" && parts[0] === "status") {
-    const status = {};
-    for (const key of Object.keys(SERVICE_COMMANDS)) {
-      status[key] = checkRunning(key) ? "running" : "stopped";
-    }
-    return json(res, 200, status);
-  }
-
-  // POST /start/:key or /stop/:key
-  if (req.method === "POST" && (parts[0] === "start" || parts[0] === "stop")) {
-    const action = parts[0];
-    const key    = parts[1];
-
-    if (!key || !SERVICE_COMMANDS[key]) {
-      return json(res, 404, { error: `Unknown service: ${key}` });
-    }
-
-    const cmd = SERVICE_COMMANDS[key][action];
-    if (!cmd) {
-      return json(res, 400, { error: `No ${action} command for ${key}` });
-    }
-
-    console.log(`[${new Date().toISOString()}] ${action.toUpperCase()} ${key} → ${cmd}`);
-
-    try {
-      const out = await run(cmd);
-      return json(res, 200, { ok: true, key, action, output: out });
-    } catch (e) {
-      console.error(`Failed: ${e.stderr || e.err?.message}`);
-      return json(res, 500, { ok: false, key, action, error: e.stderr || String(e.err) });
+  for (const origin of allowedOrigins) {
+    const parsed = new URL(origin);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.origin !== origin) {
+      throw new Error("Management origins must be explicit HTTP(S) origins, never wildcards");
     }
   }
+  const expected = createHash("sha256").update(`Bearer ${token}`).digest();
+  return http.createServer(async (req, res) => {
+    const respond = (code, body) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    const origin = req.headers.origin;
+    if (origin && !allowedOrigins.includes(origin)) return respond(403, { error: "Origin denied" });
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    }
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      return res.end();
+    }
+    const supplied = createHash("sha256").update(req.headers.authorization || "").digest();
+    if (!timingSafeEqual(expected, supplied)) return respond(401, { error: "Unauthorized" });
+    let parts;
+    try { parts = new URL(req.url, "http://127.0.0.1").pathname.split("/").filter(Boolean); }
+    catch { return respond(400, { error: "Invalid URL" }); }
+    if (req.method === "GET" && parts.length === 1 && parts[0] === "status") {
+      return respond(200, Object.fromEntries(Object.keys(commands).map(key => [key, check(key) ? "running" : "stopped"])));
+    }
+    if (req.method === "POST" && parts.length === 2 && ["start", "stop"].includes(parts[0])) {
+      const [action, key] = parts;
+      if (!Object.hasOwn(commands, key)) return respond(404, { error: "Unknown service" });
+      const cmd = commands[key][action];
+      if (typeof cmd !== "string") return respond(400, { error: "Command not configured" });
+      try {
+        const output = await execute(cmd);
+        return respond(200, { ok: true, key, action, output });
+      } catch (error) {
+        return respond(500, { ok: false, key, action, error: error.stderr || "Command failed" });
+      }
+    }
+    return respond(404, { error: "Not found" });
+  });
+}
 
-  json(res, 404, { error: "Not found" });
-});
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`FusionAL management server running on port ${PORT}`);
-  console.log(`Services: ${Object.keys(SERVICE_COMMANDS).join(", ")}`);
-  console.log(`Dashboard can reach this at http://<tailscale-ip>:${PORT}`);
-});
+module.exports = { createManagementServer, DEFAULT_HOST };
+if (require.main === module) {
+  const server = createManagementServer();
+  const host = process.env.FUSIONAL_MANAGE_HOST || DEFAULT_HOST;
+  const port = Number(process.env.FUSIONAL_MANAGE_PORT || PORT);
+  server.listen(port, host, () => console.log(`Management listener: ${host}:${port}`));
+}
