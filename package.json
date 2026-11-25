@@ -15,7 +15,7 @@
     "langfuse": "^3.39.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "recharts": "^3.10.1"
+    "recharts": "^3.11.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
